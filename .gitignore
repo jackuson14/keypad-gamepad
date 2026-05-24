@@ -1,0 +1,14 @@
+# Python
+__pycache__/
+*.pyc
+
+# PyInstaller build artifacts
+build/
+dist/
+*.spec.bak
+
+# Vendored native lib (fetch with tools/fetch_hidapi.ps1)
+hidapi.dll
+
+# Local user data (also written to ~/.keypad-gamepad)
+*.log

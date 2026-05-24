@@ -1,0 +1,13 @@
+# --- Digital mapper path (mapper.py / gui.py) ---
+vgamepad>=0.1.0
+keyboard>=0.13.5
+mouse>=0.7.1
+
+# --- Analog path (stage1_probe.py and later analog stages) ---
+# `hid` is the ctypes binding to the hidapi shared library. It is what reads
+# the keyboard's real-time analog key-depth events. See SCOPING.md / HANDOFF.md.
+hid>=1.0.6
+
+# --- Analog GUI tray icon (optional; analog_gui degrades gracefully without) ---
+pystray>=0.19.0
+Pillow>=10.0.0

@@ -1,0 +1,27 @@
+{
+  "device": {
+    "vid": 12625,
+    "pid": 20528
+  },
+  "by_label": {
+    "w": 14,
+    "a": 9,
+    "s": 15,
+    "d": 21,
+    "e": 20,
+    "r": 26,
+    "shift": 4,
+    "space": 41
+  },
+  "calibration": {
+    "14": { "max": 720 },
+    "9":  { "max": 716 },
+    "15": { "max": 715 },
+    "21": { "max": 718 },
+    "20": { "max": 716 },
+    "26": { "max": 720 },
+    "4":  { "max": 718 },
+    "41": { "max": 720 }
+  },
+  "note": "key_index<->label discovered via tools/stage2_discover.py (first-8-in-order, corroborated by Stage 1 and a +6 column-major matrix pattern). 'max' = observed peak depth during discovery (full press ~700-720); refine with a calibration pass. Extra index 8 seen during capture is most likely 'q'."
+}

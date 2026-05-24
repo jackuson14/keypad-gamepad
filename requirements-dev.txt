@@ -1,0 +1,3 @@
+# Build-time only dependencies (not needed to run the app).
+# Used by tools/build_exe.ps1 to produce a single-file analog_gui.exe.
+pyinstaller>=6.0
