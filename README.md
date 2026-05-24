@@ -11,7 +11,7 @@ firmware leaves out — with no firmware mod, no Xbox license, and **no Administ
 
 ## How it works
 
-```
+```text
 key depth (HID)  →  calibration  →  virtual Xbox 360 pad (ViGEmBus)  →  your game (XInput)
 ```
 
@@ -35,24 +35,20 @@ First run ships a default WASD keymap; click **Learn key** in the app to teach i
 
 ## Run from source
 
-1. Install **ViGEmBus** (link above).
-2. Install dependencies:
-   ```powershell
-   pip install -r requirements.txt
-   ```
-3. Fetch the native HID backend (`hidapi.dll`):
-   ```powershell
-   powershell -ExecutionPolicy Bypass -File tools\fetch_hidapi.ps1
-   ```
-4. Launch the GUI (recommended):
-   ```powershell
-   py analog_gui.py
-   ```
-   …or the CLI:
-   ```powershell
-   py run_analog.py            # WASD = analog left stick
-   py run_analog.py racing     # W/S = throttle/brake, A/D = steering
-   ```
+Install **ViGEmBus** (link above), then run these from the project folder:
+
+```powershell
+pip install -r requirements.txt                                 # 1. dependencies
+powershell -ExecutionPolicy Bypass -File tools\fetch_hidapi.ps1 # 2. fetch hidapi.dll
+py analog_gui.py                                                # 3. launch the GUI
+```
+
+Prefer the CLI? Use it instead of step 3:
+
+```powershell
+py run_analog.py            # WASD = analog left stick
+py run_analog.py racing     # W/S = throttle/brake, A/D = steering
+```
 
 No Administrator needed. **F8** pauses globally (even from inside a game). Verify the controller anytime
 with `Win+R` → `joy.cpl`.
@@ -81,7 +77,7 @@ Bundles `hidapi.dll`, the vgamepad client, and the tray backend. ViGEmBus still 
 ## Project layout
 
 | File | Role |
-|---|---|
+| --- | --- |
 | `analog_gui.py` | GUI control panel — the recommended entry point. |
 | `run_analog.py` | CLI runner with a live readout and F8 pause. |
 | `analog_mapper.py` | Engine: depth + calibration → analog targets → Xbox 360 pad. |
@@ -105,4 +101,4 @@ the partial deflection — but the digital mapper is kept as a dependency-light 
   empirically rather than copied from their source.
 - Virtual gamepad via [ViGEmBus](https://github.com/nefarius/ViGEmBus) and
   [vgamepad](https://github.com/yannbouteiller/vgamepad).
-- License: **MIT** — do whatever you want with it.
+- License: **MIT** — see [LICENSE.md](LICENSE.md). Do whatever you want with it.
