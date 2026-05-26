@@ -79,9 +79,14 @@ class App:
         try:
             self.monitor.start()
             self.monitor_ok = True
+            dev = self.monitor.device
+            if dev is not None:
+                self.root.title(f"keypad-gamepad ANALOG - {dev.name}")
+                note = "" if dev.verified else "  (unverified board - let us know if it works!)"
+                self._set_status(f"Connected: {dev.name} [{dev.id_str}]{note}")
         except Exception as e:
             self.monitor_ok = False
-            self._set_status(f"Keyboard not found: {e}. Plug in the M1 V5 HE, then Reconnect.")
+            self._set_status(f"No HE keyboard found: {e}. Plug one in, then click 'Reconnect kbd'.")
 
     def _create_mapper(self) -> None:
         # Attaches a virtual pad now (neutral); the tick loop only runs once started.

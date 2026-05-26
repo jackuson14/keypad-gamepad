@@ -11,6 +11,11 @@ analog key-depth on interface 1 / Col05 (usage_page 0xFFFF, usage 0x01) after a
 one-shot enable Feature Report on interface 2 (usage_page 0xFFFF, usage 0x02).
 Depth is a little-endian u16, ~0 (released) to ~720 (fully bottomed out). No admin
 required. No 0xAA ack is returned, but monitoring works regardless.
+
+The same protocol covers other MonsGeek/Akko HE keyboards on RongYuan firmware, so
+device selection is data-driven: KNOWN_DEVICES lists the boards, find_devices()
+auto-scans them (or takes an explicit vid/pid), and the interface split is keyed
+off vendor usage pages rather than hardcoded interface numbers.
 """
 
 from __future__ import annotations
@@ -19,6 +24,7 @@ import os
 import sys
 import threading
 import time
+from dataclasses import dataclass
 from typing import Callable, Optional
 
 # hidapi.dll is vendored next to this file (tools/fetch_hidapi.ps1). Python 3.8+
@@ -38,7 +44,43 @@ for _d in _dll_dirs:
 
 import hid  # noqa: E402
 
-VID, PID = 0x3151, 0x5030  # M1 V5 HE, wired
+
+@dataclass(frozen=True)
+class KnownDevice:
+    """One HE keyboard known to speak the RongYuan vendor depth protocol."""
+
+    vid: int
+    pid: int
+    name: str
+    transport: str = "wired"   # "wired" | "dongle" | "unknown"
+    verified: bool = False     # True only if tested on real hardware by this project
+
+    @property
+    def id_str(self) -> str:
+        return f"{self.vid:04x}:{self.pid:04x}"
+
+    def __str__(self) -> str:
+        tag = "" if self.verified else " [unverified]"
+        return f"{self.name} ({self.id_str}){tag}"
+
+
+# Registry of MonsGeek/Akko-family HE keyboards that use the same vendor depth
+# protocol (RongYuan firmware: 0x1B SET_MAGNETISM_REPORT + 0x1B KeyDepth events on
+# vendor usage page 0xFFFF). Auto-scan tries these in order and uses the first one
+# currently connected, so verified boards come first.
+#
+# Adding a board: append a KnownDevice here. Before trusting it, confirm it streams
+# 0x1B depth events with:  py stage1_probe.py --vid 0x.... --pid 0x....
+KNOWN_DEVICES: list[KnownDevice] = [
+    KnownDevice(0x3151, 0x5030, "MonsGeek M1 V5 HE", "wired", verified=True),
+    # Same keyboard over its 2.4GHz dongle. Untested here; the dongle transport may
+    # frame reports differently, so it's tried only if nothing verified is present.
+    KnownDevice(0x3151, 0x503A, "MonsGeek M1 V5 HE (2.4GHz dongle)", "dongle", verified=False),
+]
+
+# Back-compat module constants: default to the first (verified) device. Existing
+# imports of VID/PID keep working; auto-scan covers the rest.
+VID, PID = KNOWN_DEVICES[0].vid, KNOWN_DEVICES[0].pid
 
 # Protocol command bytes (from the reverse-engineered PROTOCOL.md)
 CMD_SET_MAGNETISM_REPORT = 0x1B
@@ -59,24 +101,68 @@ def build_feature_command(cmd_bytes: list[int]) -> bytes:
     return bytes(full)
 
 
-def find_devices() -> tuple[dict, dict]:
-    """Locate (config_iface, input_iface) for the M1 V5 HE. Raises RuntimeError if absent."""
-    ifaces = list(hid.enumerate(VID, PID))
-    if not ifaces:
-        raise RuntimeError(
-            f"No device VID:PID={VID:04x}:{PID:04x}. Plugged in via USB-C (not the "
-            f"wireless dongle, which is PID 0x503A)?"
-        )
+def _split_interfaces(ifaces: list[dict]) -> tuple[dict, dict]:
+    """Pick (config_iface, input_iface) from one device's HID collections.
+
+    Keyed off vendor usage pages, not hardcoded interface numbers, so it works for
+    any board that exposes the protocol the same way."""
     config = next(
         (d for d in ifaces if d.get("usage_page") == 0xFFFF and d.get("usage") == 0x02),
         None,
     )
     if config is None:
-        raise RuntimeError("Vendor config interface (usage_page=0xFFFF, usage=0x02) not found")
+        raise RuntimeError("vendor config interface (usage_page=0xFFFF, usage=0x02) not found")
     candidates = [d for d in ifaces if d is not config]
     vendor_inputs = [d for d in candidates if (d.get("usage_page", 0) & 0xFF00) == 0xFF00]
-    input_iface = vendor_inputs[0] if vendor_inputs else candidates[0]
+    input_iface = vendor_inputs[0] if vendor_inputs else (candidates[0] if candidates else None)
+    if input_iface is None:
+        raise RuntimeError("no input interface alongside the vendor config interface")
     return config, input_iface
+
+
+def list_present_devices() -> list[KnownDevice]:
+    """Return the KNOWN_DEVICES that are currently connected (HID-enumerable)."""
+    return [d for d in KNOWN_DEVICES if list(hid.enumerate(d.vid, d.pid))]
+
+
+def find_devices(
+    vid: int | None = None, pid: int | None = None
+) -> tuple[dict, dict, KnownDevice]:
+    """Locate (config_iface, input_iface, device) for an HE keyboard.
+
+    With explicit vid+pid, target exactly that device (even if not in the registry).
+    Otherwise auto-scan KNOWN_DEVICES and use the first one currently connected.
+    Raises RuntimeError, listing what was searched, if nothing usable is found."""
+    if vid is not None and pid is not None:
+        targets = [
+            next(
+                (d for d in KNOWN_DEVICES if d.vid == vid and d.pid == pid),
+                KnownDevice(vid, pid, "custom device", "unknown", verified=False),
+            )
+        ]
+    else:
+        targets = list(KNOWN_DEVICES)
+
+    errors: list[str] = []
+    for dev in targets:
+        ifaces = list(hid.enumerate(dev.vid, dev.pid))
+        if not ifaces:
+            errors.append(f"{dev}: not connected")
+            continue
+        try:
+            config, input_iface = _split_interfaces(ifaces)
+        except RuntimeError as e:
+            errors.append(f"{dev}: {e}")
+            continue
+        return config, input_iface, dev
+
+    raise RuntimeError(
+        "No usable HE keyboard found:\n  "
+        + "\n  ".join(errors)
+        + "\n  Plug in via USB-C (the wireless dongle is a separate, unverified PID). "
+        "To try an unlisted board, pass its IDs explicitly "
+        "(run: py stage1_probe.py --vid 0x.... --pid 0x.... to confirm it speaks the protocol)."
+    )
 
 
 class DepthMonitor:
@@ -95,9 +181,15 @@ class DepthMonitor:
         self,
         on_event: Optional[Callable[[int, int], None]] = None,
         idle_reenable_s: float = 3.0,
+        vid: Optional[int] = None,
+        pid: Optional[int] = None,
     ) -> None:
         self.on_event = on_event
         self.idle_reenable_s = idle_reenable_s
+        # None/None => auto-scan KNOWN_DEVICES; set both to target a specific board.
+        self.vid = vid
+        self.pid = pid
+        self.device: Optional[KnownDevice] = None  # which board we actually opened
         self._depths: dict[int, int] = {}
         self._lock = threading.Lock()
         self._running = False
@@ -115,7 +207,7 @@ class DepthMonitor:
     # -- lifecycle ---------------------------------------------------------
 
     def start(self) -> None:
-        config_info, input_info = find_devices()
+        config_info, input_info, self.device = find_devices(self.vid, self.pid)
         self._config_dev = hid.Device(path=config_info["path"])
         self._enable()
         self._input_dev = hid.Device(path=input_info["path"])

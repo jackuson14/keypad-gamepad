@@ -26,6 +26,7 @@ Expected output if it works:
 
 from __future__ import annotations
 
+import argparse
 import os
 import sys
 import time
@@ -70,18 +71,19 @@ def build_feature_command(cmd_bytes: list[int]) -> bytes:
     return bytes(full)
 
 
-def find_devices() -> tuple[dict, dict]:
-    """Find the two HID interfaces we need on the M1 V5 HE.
+def find_devices(vid: int = VID, pid: int = PID) -> tuple[dict, dict]:
+    """Find the two HID interfaces we need on an HE keyboard.
 
-    Returns (config_info, input_info) — both are dicts from hid.enumerate().
-    Raises if the keyboard isn't found.
+    Defaults to the M1 V5 HE; pass vid/pid to probe a different board (e.g. another
+    MonsGeek/Akko model). Returns (config_info, input_info) — both dicts from
+    hid.enumerate(). Raises if the keyboard isn't found.
     """
-    all_ifaces = list(hid.enumerate(VID, PID))
+    all_ifaces = list(hid.enumerate(vid, pid))
     if not all_ifaces:
         raise RuntimeError(
-            f"No device with VID:PID={VID:04x}:{PID:04x} found.\n"
+            f"No device with VID:PID={vid:04x}:{pid:04x} found.\n"
             f"  - Is the keyboard plugged in via USB-C (not the wireless dongle)?\n"
-            f"  - The wireless dongle uses PID 0x503A and would need different handling."
+            f"  - The M1 V5 wireless dongle uses PID 0x503A and would need different handling."
         )
 
     print(f"[info] found {len(all_ifaces)} HID interfaces on the keyboard:")
@@ -116,9 +118,17 @@ def find_devices() -> tuple[dict, dict]:
 
 
 def main() -> int:
-    print(f"[info] looking for VID:PID={VID:04x}:{PID:04x}")
+    ap = argparse.ArgumentParser(
+        description="Stage 1: probe an HE keyboard for analog key-depth streaming.")
+    ap.add_argument("--vid", type=lambda s: int(s, 0), default=VID,
+                    help=f"keyboard VID (default 0x{VID:04x}); accepts 0x-hex or decimal")
+    ap.add_argument("--pid", type=lambda s: int(s, 0), default=PID,
+                    help=f"keyboard PID (default 0x{PID:04x}); accepts 0x-hex or decimal")
+    args = ap.parse_args()
+
+    print(f"[info] looking for VID:PID={args.vid:04x}:{args.pid:04x}")
     try:
-        config_info, input_info = find_devices()
+        config_info, input_info = find_devices(args.vid, args.pid)
     except RuntimeError as e:
         print(f"ERROR: {e}", file=sys.stderr)
         return 1

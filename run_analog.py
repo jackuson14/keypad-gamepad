@@ -12,13 +12,16 @@ PROPORTIONAL sticks and triggers driven by how far you press each key.
     can still see the computed output; install/upgrade ViGEmBus for real output.
 
 Usage:
-    py run_analog.py                 # fps profile
+    py run_analog.py                 # fps profile, auto-detect keyboard
     py run_analog.py racing
     py run_analog.py <profile_name>  # any saved analog profile
+    py run_analog.py --list-devices  # show which known HE keyboards are connected
+    py run_analog.py --vid 0x3151 --pid 0x5030   # target a specific board
 """
 
 from __future__ import annotations
 
+import argparse
 import sys
 import time
 
@@ -26,6 +29,7 @@ from analog_mapper import (
     AnalogMapper, AnalogProfile, Keymap,
     ensure_defaults_exist, list_profiles, load_profile,
 )
+from hid_protocol import KNOWN_DEVICES, list_present_devices
 from winhotkey import start_hotkey, VK_F8
 
 
@@ -48,10 +52,45 @@ def fmt_bar(v: float, width: int = 8) -> str:
     return fill
 
 
+def _hex_or_int(s: str) -> int:
+    """argparse type: accept 0x-prefixed hex ('0x3151') or plain decimal."""
+    return int(s, 0)
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    p = argparse.ArgumentParser(description="keypad-gamepad analog CLI runner.")
+    p.add_argument("profile", nargs="?", default="fps",
+                   help="profile: 'fps', 'racing', or any saved analog profile name")
+    p.add_argument("--vid", type=_hex_or_int, default=None,
+                   help="target a specific keyboard VID (e.g. 0x3151); default = auto-scan")
+    p.add_argument("--pid", type=_hex_or_int, default=None,
+                   help="target a specific keyboard PID (e.g. 0x5030); default = auto-scan")
+    p.add_argument("--list-devices", action="store_true",
+                   help="list known HE keyboards and whether each is connected, then exit")
+    return p.parse_args(argv)
+
+
+def list_devices_command() -> int:
+    present = {(d.vid, d.pid) for d in list_present_devices()}
+    print("Known HE keyboards (auto-scan order):")
+    for d in KNOWN_DEVICES:
+        mark = "connected" if (d.vid, d.pid) in present else "not found"
+        print(f"  [{'x' if (d.vid, d.pid) in present else ' '}] {d}  -- {mark}")
+    if not present:
+        print("\nNothing connected. Plug in via USB-C, or pass --vid/--pid for an unlisted board.")
+    return 0
+
+
 def main() -> int:
+    args = parse_args()
+    if args.list_devices:
+        return list_devices_command()
+    if (args.vid is None) != (args.pid is None):
+        print("ERROR: pass --vid and --pid together (or neither, to auto-scan).", file=sys.stderr)
+        return 2
+
     ensure_defaults_exist()
-    name = sys.argv[1] if len(sys.argv) > 1 else "fps"
-    profile = pick_profile(name)
+    profile = pick_profile(args.profile)
 
     try:
         keymap = Keymap.load()
@@ -63,7 +102,7 @@ def main() -> int:
     # Let the engine attach (with retries) and fall back to dry-run on its own;
     # a separate pre-check would create+destroy a target and provoke the very
     # transient attach failure we want to avoid.
-    mapper = AnalogMapper(profile, keymap, dry_run=False)
+    mapper = AnalogMapper(profile, keymap, dry_run=False, vid=args.vid, pid=args.pid)
 
     print("=" * 60)
     print(f" keypad-gamepad ANALOG  |  profile: {profile.name}")
@@ -81,7 +120,15 @@ def main() -> int:
     print(" F8 = pause/resume   |   Ctrl+C = quit")
     print("-" * 60)
 
-    mapper.start()
+    try:
+        mapper.start()
+    except RuntimeError as e:
+        print(f"\n [x] {e}")
+        mapper.stop()
+        return 1
+    dev = mapper.monitor.device
+    if dev is not None:
+        print(f" [ok] Keyboard: {dev}")
     f8_ok = start_hotkey(VK_F8, mapper.toggle_enabled, lambda: not mapper.running)
     if not f8_ok:
         print(" [!] couldn't register F8 hotkey (pause via Ctrl+C still works).")

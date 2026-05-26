@@ -20,7 +20,8 @@ to proportional gamepad output and feeds it through ViGEmBus.
 
 ## Requirements
 
-- Windows 10/11, a **wired** M1 V5 HE (VID `0x3151` / PID `0x5030`)
+- Windows 10/11, a **wired** M1 V5 HE (VID `0x3151` / PID `0x5030`). Related
+  MonsGeek/Akko HE boards are auto-detected too — see [Other keyboards](#other-keyboards-monsgeek--akko-he).
 - The **[ViGEmBus driver](https://github.com/nefarius/ViGEmBus/releases/latest)** — 1.22.0+ (older builds
   fail on Windows 11). One-time install.
 - Either the prebuilt `.exe` (from Releases) **or** Python 3.10+ to run from source.
@@ -62,6 +63,31 @@ with `Win+R` → `joy.cpl`.
   layout, so switch reorderings don't matter.
 - **Tuning** — dead-zone (ignore light touches) and button threshold.
 - **Live preview** — stick dots and trigger bars move with your key depth, before and while output runs.
+
+## Other keyboards (MonsGeek / Akko HE)
+
+The M1 V5 HE is the only board **verified** here, but the depth protocol is shared
+across MonsGeek/Akko Hall-Effect keyboards on RongYuan firmware, so sibling boards
+often work with no code change. Device selection is data-driven:
+
+- **Auto-detect** — on launch the app scans a small registry of known HE keyboards
+  (`KNOWN_DEVICES` in [`hid_protocol.py`](hid_protocol.py)) and uses the first one
+  connected. The GUI shows the detected board in its title bar; the CLI prints it.
+- **See what's connected:** `py run_analog.py --list-devices`
+- **Target a specific board:** `py run_analog.py --vid 0x3151 --pid 0x5030`
+- **Try an unlisted board:** confirm it streams `0x1B` depth events first, without
+  editing any source:
+
+  ```powershell
+  py stage1_probe.py --vid 0xVVVV --pid 0xPPPP   # press W/A/S/D slowly
+  ```
+
+  If depth values ramp up and down, add a `KnownDevice(0xVVVV, 0xPPPP, "Your board")`
+  line to `KNOWN_DEVICES` (mark `verified=True` once you've used it). Then use
+  **Learn key** to teach it your layout — key indices aren't assumed.
+
+> The M1 V5's 2.4 GHz dongle (PID `0x503A`) is listed but **unverified**: the dongle
+> transport may frame reports differently. Wired USB is the reliable path.
 
 ## Build the .exe yourself
 

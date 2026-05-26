@@ -177,7 +177,8 @@ class AnalogMapper:
     TICK_DT = 1.0 / TICK_HZ
 
     def __init__(self, profile: AnalogProfile, keymap: Keymap, dry_run: bool = False,
-                 monitor: DepthMonitor | None = None) -> None:
+                 monitor: DepthMonitor | None = None,
+                 vid: int | None = None, pid: int | None = None) -> None:
         self.profile = profile
         self.keymap = keymap
         # dry_run: compute target state but don't create/drive a virtual pad. Lets
@@ -192,9 +193,10 @@ class AnalogMapper:
                 # Couldn't attach after retries -> degrade to dry-run rather than crash.
                 self.dry_run = True
         # An injected monitor (e.g. owned by a GUI for always-on live preview) is not
-        # started/stopped by us; a self-created one is ours to manage.
+        # started/stopped by us; a self-created one is ours to manage. vid/pid select
+        # which board the self-created monitor opens (None => auto-scan KNOWN_DEVICES).
         self._owns_monitor = monitor is None
-        self.monitor = monitor if monitor is not None else DepthMonitor()
+        self.monitor = monitor if monitor is not None else DepthMonitor(vid=vid, pid=pid)
         self.running = False
         self.enabled = True
         self._runtime: dict[int, tuple[str, int, int]] = {}   # key_index -> (target, dz, max)
