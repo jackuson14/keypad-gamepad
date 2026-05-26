@@ -1,8 +1,11 @@
 # keypad-gamepad
 
-Turn the **MonsGeek M1 V5 HE** Hall-Effect keyboard into a virtual **Xbox 360 controller with true
-analog sticks and triggers**, driven by how far you press each key. It's the gamepad mode MonsGeek's
+Turn a **MonsGeek / Akko Hall-Effect keyboard** into a virtual **Xbox 360 controller with true
+analog sticks and triggers**, driven by how far you press each key. It's the gamepad mode the
 firmware leaves out — with no firmware mod, no Xbox license, and **no Administrator**. Wired USB.
+
+Built and verified on the **MonsGeek M1 V5 HE**, but the keyboard is auto-detected: sibling HE
+boards on the same vendor protocol work too — see [Other keyboards](#other-keyboards-monsgeek--akko-he).
 
 > Half-press **W** → half-tilted stick. Feather a trigger-bound key → partial throttle. Any XInput game
 > sees a real controller.
@@ -20,8 +23,8 @@ to proportional gamepad output and feeds it through ViGEmBus.
 
 ## Requirements
 
-- Windows 10/11, a **wired** M1 V5 HE (VID `0x3151` / PID `0x5030`). Related
-  MonsGeek/Akko HE boards are auto-detected too — see [Other keyboards](#other-keyboards-monsgeek--akko-he).
+- Windows 10/11 and a **wired** MonsGeek/Akko HE keyboard. The **M1 V5 HE** (VID `0x3151` /
+  PID `0x5030`) is the verified board; other HE boards are auto-detected — see [Other keyboards](#other-keyboards-monsgeek--akko-he).
 - The **[ViGEmBus driver](https://github.com/nefarius/ViGEmBus/releases/latest)** — 1.22.0+ (older builds
   fail on Windows 11). One-time install.
 - Either the prebuilt `.exe` (from Releases) **or** Python 3.10+ to run from source.
