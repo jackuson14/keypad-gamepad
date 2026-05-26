@@ -18,7 +18,9 @@ No Administrator required: the keyboard is read over HID and F8 uses RegisterHot
 from __future__ import annotations
 
 import tkinter as tk
-from tkinter import ttk, messagebox, simpledialog
+from tkinter import ttk, messagebox, simpledialog, font as tkfont
+
+import sv_ttk
 
 from hid_protocol import DepthMonitor
 from winhotkey import start_hotkey, VK_F8
@@ -30,6 +32,68 @@ from analog_mapper import (
 )
 
 SORTED_TARGETS = sorted(XBOX_BUTTONS.keys()) + sorted(SPECIAL_TARGETS)
+
+# Sun Valley (sv_ttk) themes the ttk widgets; these cover the few raw-tk bits it
+# can't (Canvas, Listbox, Toplevel) so they match the dark window instead of
+# rendering as light-grey 2000s-era controls.
+SURFACE = "#1c1c1c"      # sv_ttk dark window background
+CARD = "#202020"         # slightly raised panel (stick canvas)
+GRID = "#3a3f4a"         # stick guide lines / outline
+ACCENT = "#57a6ff"       # stick dot / highlights (Win11-ish blue)
+TEXT = "#fafafa"
+MUTED = "#9aa0a6"
+OK_BG, OK_FG = "#16301c", "#5fd06f"      # "pad attached" banner
+WARN_BG, WARN_FG = "#3a1d1d", "#ff8a80"  # "dry-run / not attached" banner
+
+
+class Tooltip:
+    """Lightweight hover tooltip for any widget (Tk has none built in).
+
+    Shows a small dark popup after a short hover delay; hides on leave/click.
+    Styled to match the sv_ttk dark theme (CARD fill, thin GRID border)."""
+
+    def __init__(self, widget: tk.Widget, text: str, delay: int = 450,
+                 wraplength: int = 340) -> None:
+        self.widget = widget
+        self.text = text
+        self.delay = delay
+        self.wraplength = wraplength
+        self._after: str | None = None
+        self._tip: tk.Toplevel | None = None
+        widget.bind("<Enter>", self._schedule, add="+")
+        widget.bind("<Leave>", self._hide, add="+")
+        widget.bind("<ButtonPress>", self._hide, add="+")
+
+    def _schedule(self, _e=None) -> None:
+        self._cancel()
+        self._after = self.widget.after(self.delay, self._show)
+
+    def _cancel(self) -> None:
+        if self._after is not None:
+            try:
+                self.widget.after_cancel(self._after)
+            except Exception:
+                pass
+            self._after = None
+
+    def _show(self) -> None:
+        if self._tip is not None or not self.widget.winfo_exists():
+            return
+        x = self.widget.winfo_rootx() + 14
+        y = self.widget.winfo_rooty() + self.widget.winfo_height() + 6
+        self._tip = tk.Toplevel(self.widget)
+        self._tip.wm_overrideredirect(True)
+        self._tip.wm_geometry(f"+{x}+{y}")
+        self._tip.configure(bg=GRID)  # 1px border via the outer bg showing through
+        tk.Label(self._tip, text=self.text, justify="left", bg=CARD, fg=TEXT,
+                 wraplength=self.wraplength, font=("Segoe UI", 9),
+                 padx=10, pady=7, bd=0).pack(padx=1, pady=1)
+
+    def _hide(self, _e=None) -> None:
+        self._cancel()
+        if self._tip is not None:
+            self._tip.destroy()
+            self._tip = None
 
 # Optional system-tray support; degrade gracefully if not installed.
 try:
@@ -44,7 +108,9 @@ class App:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
         root.title("keypad-gamepad ANALOG - M1 V5 HE")
-        root.geometry("760x720")
+        root.geometry("820x760")
+        root.minsize(760, 700)
+        root.configure(bg=SURFACE)
 
         ensure_defaults_exist()
         self.profile: AnalogProfile = load_profile("analog_fps") if "analog_fps" in list_profiles() \
@@ -57,6 +123,7 @@ class App:
         self.mapper: AnalogMapper | None = None
         self.tray = None
         self._hotkey_stop = False
+        self._tooltips: list[Tooltip] = []   # keep refs alive
 
         self._build_ui()
         self._start_monitor()
@@ -93,13 +160,13 @@ class App:
         self.mapper = AnalogMapper(self.profile, self.keymap, dry_run=False, monitor=self.monitor)
         if self.mapper.dry_run:
             self.vigem_banner.config(
-                text="  ViGEmBus not attached - DRY-RUN (live preview only). "
+                text="  ●  ViGEmBus not attached — DRY-RUN (live preview only). "
                      "Install/upgrade ViGEmBus 1.22.0 for real output.",
-                background="#f3d6d6", foreground="#7a1f1f")
+                background=WARN_BG, foreground=WARN_FG)
         else:
             self.vigem_banner.config(
-                text="  Virtual Xbox 360 pad attached via ViGEmBus.",
-                background="#d6f3da", foreground="#1f5a2a")
+                text="  ●  Virtual Xbox 360 pad attached via ViGEmBus.",
+                background=OK_BG, foreground=OK_FG)
         if self.mapper.unresolved_labels:
             self._set_status(f"Bindings with no learned key: {self.mapper.unresolved_labels} "
                              f"- use 'Learn key' to teach them.")
@@ -107,24 +174,40 @@ class App:
     # ------------------------------------------------------------------ UI
 
     def _build_ui(self) -> None:
-        pad = {"padx": 8, "pady": 4}
+        pad = {"padx": 16, "pady": 6}
 
-        self.vigem_banner = tk.Label(self.root, text="  (checking ViGEmBus...)",
-                                     anchor="w", relief="groove")
-        self.vigem_banner.pack(fill="x")
+        # Title strip
+        header = ttk.Frame(self.root); header.pack(fill="x", padx=16, pady=(14, 2))
+        ttk.Label(header, text="keypad-gamepad", font=("Segoe UI Semibold", 16)).pack(side="left")
+        ttk.Label(header, text="ANALOG", font=("Segoe UI", 11),
+                  foreground=ACCENT).pack(side="left", padx=(8, 0), pady=(5, 0))
+
+        # ViGEmBus status pill (flat, dark; coloured in _create_mapper)
+        self.vigem_banner = tk.Label(self.root, text="  Checking ViGEmBus…",
+                                     anchor="w", relief="flat", bg=SURFACE, fg=MUTED,
+                                     font=("Segoe UI", 10), padx=12, pady=8)
+        self.vigem_banner.pack(fill="x", padx=16, pady=(4, 2))
 
         # Profile row
         top = ttk.Frame(self.root); top.pack(fill="x", **pad)
-        ttk.Label(top, text="Profile:").pack(side="left")
+        ttk.Label(top, text="Profile").pack(side="left")
         self.profile_var = tk.StringVar(value=self.profile.name)
         self.profile_combo = ttk.Combobox(top, textvariable=self.profile_var,
                                           values=list_profiles(), state="readonly", width=22)
         self.profile_combo.pack(side="left", padx=4)
         self.profile_combo.bind("<<ComboboxSelected>>", lambda e: self._load_selected_profile())
-        ttk.Button(top, text="New...", command=self._new_profile).pack(side="left", padx=2)
-        ttk.Button(top, text="Save", command=self._save_current_profile).pack(side="left", padx=2)
-        ttk.Button(top, text="Delete", command=self._delete_current_profile).pack(side="left", padx=2)
-        ttk.Button(top, text="Reconnect kbd", command=self._reconnect).pack(side="right", padx=2)
+        b_new = ttk.Button(top, text="New...", command=self._new_profile); b_new.pack(side="left", padx=2)
+        b_save = ttk.Button(top, text="Save", command=self._save_current_profile); b_save.pack(side="left", padx=2)
+        b_del = ttk.Button(top, text="Delete", command=self._delete_current_profile); b_del.pack(side="left", padx=2)
+        b_recon = ttk.Button(top, text="Reconnect kbd", command=self._reconnect); b_recon.pack(side="right", padx=2)
+        self._add_tip(self.profile_combo, "The active profile: one set of key→gamepad bindings plus "
+                      "its dead-zone and button-threshold tuning. Switch profiles or create new ones here.")
+        self._add_tip(b_new, "Create a new, empty profile.")
+        self._add_tip(b_save, "Save the current bindings and tuning into this profile.")
+        self._add_tip(b_del, "Delete the selected profile. The built-in analog_fps / analog_racing "
+                      "defaults regenerate and can't be deleted.")
+        self._add_tip(b_recon, "Re-scan and re-open the keyboard — use after replugging it, or if it "
+                      "wasn't detected when the app launched.")
 
         # Bindings table
         bframe = ttk.LabelFrame(self.root, text="Key bindings  (label -> key_index -> max -> target)")
@@ -137,35 +220,59 @@ class App:
         self.tree.bind("<Double-1>", lambda e: self._edit_binding())
         sb = ttk.Scrollbar(bframe, orient="vertical", command=self.tree.yview)
         self.tree.configure(yscroll=sb.set); sb.pack(side="left", fill="y")
+        self._add_tip(self.tree, "Each row maps a physical key to a gamepad control. Columns: key "
+                      "label · hardware index · full-press depth (max) · gamepad target. "
+                      "Double-click a row to change its target.")
         bcol = ttk.Frame(bframe); bcol.pack(side="left", fill="y", padx=4)
-        ttk.Button(bcol, text="Add...", command=self._add_binding).pack(fill="x", pady=2)
-        ttk.Button(bcol, text="Edit target...", command=self._edit_binding).pack(fill="x", pady=2)
-        ttk.Button(bcol, text="Remove", command=self._remove_binding).pack(fill="x", pady=2)
+        b_add = ttk.Button(bcol, text="Add...", command=self._add_binding); b_add.pack(fill="x", pady=2)
+        b_edit = ttk.Button(bcol, text="Edit target...", command=self._edit_binding); b_edit.pack(fill="x", pady=2)
+        b_rem = ttk.Button(bcol, text="Remove", command=self._remove_binding); b_rem.pack(fill="x", pady=2)
         ttk.Separator(bcol, orient="horizontal").pack(fill="x", pady=6)
-        ttk.Button(bcol, text="Learn key...", command=self._learn_key).pack(fill="x", pady=2)
-        ttk.Button(bcol, text="Calibrate sel.", command=self._calibrate_selected).pack(fill="x", pady=2)
+        b_learn = ttk.Button(bcol, text="Learn key...", command=self._learn_key); b_learn.pack(fill="x", pady=2)
+        b_cal = ttk.Button(bcol, text="Calibrate sel.", command=self._calibrate_selected); b_cal.pack(fill="x", pady=2)
+        self._add_tip(b_add, "Map one of your learned keys to a gamepad control.")
+        self._add_tip(b_edit, "Change which gamepad control the selected key drives.")
+        self._add_tip(b_rem, "Remove the selected binding.")
+        self._add_tip(b_learn, "Press a key and the app records its hardware index and full-press "
+                      "depth — no hardcoded layout, so switch reorderings don't matter.")
+        self._add_tip(b_cal, "Re-measure the selected key's full-press depth so its analog range "
+                      "stays accurate.")
 
         # Tuning
         tune = ttk.LabelFrame(self.root, text="Tuning"); tune.pack(fill="x", **pad)
-        dz_row = ttk.Frame(tune); dz_row.pack(fill="x", padx=8, pady=2)
-        ttk.Label(dz_row, text="Dead-zone (depth):", width=20).pack(side="left")
+
+        DZ_TIP = ("Dead-zone — how far a key must travel before it registers at all. The "
+                  "keyboard reports depth 0 (released) to ~720 (fully pressed); anything "
+                  "shallower than this reads as zero output. Raise it to stop resting fingers "
+                  "or sensor jitter from drifting your stick; lower it for a hair trigger.")
+        dz_row = ttk.Frame(tune); dz_row.pack(fill="x", padx=8, pady=4)
+        dz_lbl = ttk.Label(dz_row, text="Dead-zone (depth):", width=20); dz_lbl.pack(side="left")
         self.dz_var = tk.IntVar(value=self.profile.dead_zone)
-        ttk.Scale(dz_row, from_=0, to=400, variable=self.dz_var,
-                  command=lambda v: self._on_tune_changed()).pack(side="left", fill="x", expand=True)
+        dz_scale = ttk.Scale(dz_row, from_=0, to=400, variable=self.dz_var,
+                             command=lambda v: self._on_tune_changed())
+        dz_scale.pack(side="left", fill="x", expand=True)
         self.dz_label = ttk.Label(dz_row, width=6); self.dz_label.pack(side="left")
-        bt_row = ttk.Frame(tune); bt_row.pack(fill="x", padx=8, pady=2)
-        ttk.Label(bt_row, text="Button threshold:", width=20).pack(side="left")
+        self._add_tip(dz_lbl, DZ_TIP); self._add_tip(dz_scale, DZ_TIP)
+
+        BT_TIP = ("Button threshold — for keys mapped to buttons (A, B, X, Y, bumpers…), how "
+                  "far down the press must go to count as 'pressed'. 0.50 = halfway. Lower = a "
+                  "lighter tap fires the button; higher = press more firmly. Keys mapped to "
+                  "sticks or triggers ignore this — they stay fully proportional.")
+        bt_row = ttk.Frame(tune); bt_row.pack(fill="x", padx=8, pady=4)
+        bt_lbl = ttk.Label(bt_row, text="Button threshold:", width=20); bt_lbl.pack(side="left")
         self.bt_var = tk.DoubleVar(value=self.profile.button_threshold)
-        ttk.Scale(bt_row, from_=0.1, to=1.0, variable=self.bt_var,
-                  command=lambda v: self._on_tune_changed()).pack(side="left", fill="x", expand=True)
+        bt_scale = ttk.Scale(bt_row, from_=0.1, to=1.0, variable=self.bt_var,
+                             command=lambda v: self._on_tune_changed())
+        bt_scale.pack(side="left", fill="x", expand=True)
         self.bt_label = ttk.Label(bt_row, width=6); self.bt_label.pack(side="left")
+        self._add_tip(bt_lbl, BT_TIP); self._add_tip(bt_scale, BT_TIP)
 
         # Live preview
         live = ttk.LabelFrame(self.root, text="Live output preview"); live.pack(fill="x", **pad)
         sticks = ttk.Frame(live); sticks.pack(side="left", padx=8, pady=4)
-        self.lcanvas = tk.Canvas(sticks, width=90, height=90, bg="#1d1f24", highlightthickness=0)
+        self.lcanvas = tk.Canvas(sticks, width=96, height=96, bg=CARD, highlightthickness=0)
         self.lcanvas.grid(row=0, column=0, padx=6); ttk.Label(sticks, text="L stick").grid(row=1, column=0)
-        self.rcanvas = tk.Canvas(sticks, width=90, height=90, bg="#1d1f24", highlightthickness=0)
+        self.rcanvas = tk.Canvas(sticks, width=96, height=96, bg=CARD, highlightthickness=0)
         self.rcanvas.grid(row=0, column=1, padx=6); ttk.Label(sticks, text="R stick").grid(row=1, column=1)
         trig = ttk.Frame(live); trig.pack(side="left", padx=12, fill="x", expand=True)
         ttk.Label(trig, text="LT").grid(row=0, column=0, sticky="w")
@@ -173,19 +280,32 @@ class App:
         ttk.Label(trig, text="RT").grid(row=1, column=0, sticky="w")
         self.rt_bar = ttk.Progressbar(trig, length=160, maximum=1.0); self.rt_bar.grid(row=1, column=1, padx=6, pady=3)
         self.btn_label = ttk.Label(trig, text="buttons: -"); self.btn_label.grid(row=2, column=0, columnspan=2, sticky="w", pady=4)
+        preview_tip = ("Live readout of the gamepad output your key presses produce — the dots are "
+                       "the sticks, the bars are the triggers (LT/RT). Moves whether or not output "
+                       "is running, so you can test bindings safely.")
+        self._add_tip(self.lcanvas, preview_tip); self._add_tip(self.rcanvas, preview_tip)
 
-        # Control bar
-        ctrl = ttk.Frame(self.root); ctrl.pack(fill="x", **pad)
-        self.start_btn = ttk.Button(ctrl, text="Start output", command=self.toggle_running)
-        self.start_btn.pack(side="left")
-        self.pause_btn = ttk.Button(ctrl, text="Pause (F8)", command=self.toggle_pause, state="disabled")
-        self.pause_btn.pack(side="left", padx=4)
+        # Control bar: status on the left, primary action anchored bottom-right.
+        ctrl = ttk.Frame(self.root); ctrl.pack(fill="x", padx=16, pady=(6, 14))
         self.status_var = tk.StringVar(value="Ready.")
-        ttk.Label(ctrl, textvariable=self.status_var, foreground="#555").pack(side="left", padx=8)
+        ttk.Label(ctrl, textvariable=self.status_var, foreground=MUTED).pack(side="left", padx=(0, 8))
+        # Packed right-first so Start (primary) sits rightmost, Pause just to its left.
+        self.start_btn = ttk.Button(ctrl, text="Start output", command=self.toggle_running,
+                                    style="Accent.TButton")
+        self.start_btn.pack(side="right")
+        self.pause_btn = ttk.Button(ctrl, text="Pause (F8)", command=self.toggle_pause, state="disabled")
+        self.pause_btn.pack(side="right", padx=6)
+        self._add_tip(self.start_btn, "Start sending gamepad output to games. Click again to stop. "
+                      "Needs ViGEmBus installed for real output.")
+        self._add_tip(self.pause_btn, "Pause or resume output without stopping. Works globally — "
+                      "even from inside a game — via the F8 hotkey.")
 
         self._update_tune_labels()
 
     # ------------------------------------------------------------------ helpers
+
+    def _add_tip(self, widget: tk.Widget, text: str) -> None:
+        self._tooltips.append(Tooltip(widget, text))
 
     def _set_status(self, msg: str) -> None:
         if hasattr(self, "status_var"):
@@ -346,10 +466,10 @@ class App:
 
     def _capture_key_press(self, prompt: str) -> tuple[int | None, int] | None:
         """Modal: watch the live depth stream and capture the strongest-pressed key."""
-        dlg = tk.Toplevel(self.root); dlg.title("Capture key"); dlg.geometry("420x150")
-        dlg.transient(self.root); dlg.grab_set()
-        ttk.Label(dlg, text=prompt, wraplength=400).pack(pady=8)
-        live = ttk.Label(dlg, text="(waiting for a key press...)", foreground="#555")
+        dlg = tk.Toplevel(self.root); dlg.title("Capture key"); dlg.geometry("440x170")
+        dlg.transient(self.root); dlg.grab_set(); dlg.configure(bg=SURFACE)
+        ttk.Label(dlg, text=prompt, wraplength=400).pack(pady=(14, 8), padx=14)
+        live = ttk.Label(dlg, text="(waiting for a key press…)", foreground=MUTED)
         live.pack(pady=4)
         st = {"best_idx": None, "best_peak": 0, "done": False, "result": None}
 
@@ -379,13 +499,16 @@ class App:
         return st["result"]
 
     def _pick_from_list(self, prompt: str, items: list[str], current: str | None = None) -> str | None:
-        dlg = tk.Toplevel(self.root); dlg.title("Pick"); dlg.geometry("300x420")
-        dlg.transient(self.root); dlg.grab_set()
-        ttk.Label(dlg, text=prompt, wraplength=280).pack(pady=6)
-        lb = tk.Listbox(dlg, height=18)
+        dlg = tk.Toplevel(self.root); dlg.title("Pick"); dlg.geometry("320x440")
+        dlg.transient(self.root); dlg.grab_set(); dlg.configure(bg=SURFACE)
+        ttk.Label(dlg, text=prompt, wraplength=290).pack(pady=(12, 6), padx=12)
+        lb = tk.Listbox(dlg, height=18, bg=CARD, fg=TEXT, borderwidth=0,
+                        highlightthickness=0, relief="flat", activestyle="none",
+                        selectbackground=ACCENT, selectforeground="#10243a",
+                        font=("Segoe UI", 10))
         for it in items:
             lb.insert("end", it)
-        lb.pack(fill="both", expand=True, padx=8, pady=4)
+        lb.pack(fill="both", expand=True, padx=12, pady=4)
         if current and current in items:
             i = items.index(current); lb.selection_set(i); lb.see(i)
         chosen = {"v": None}
@@ -444,12 +567,15 @@ class App:
         canvas.delete("all")
         w = int(canvas["width"]); h = int(canvas["height"])
         cx, cy = w / 2, h / 2
-        canvas.create_oval(4, 4, w - 4, h - 4, outline="#3a3f4a")
-        canvas.create_line(cx, 6, cx, h - 6, fill="#2a2e36")
-        canvas.create_line(6, cy, w - 6, cy, fill="#2a2e36")
-        px = cx + x * (w / 2 - 8)
-        py = cy - y * (h / 2 - 8)
-        canvas.create_oval(px - 6, py - 6, px + 6, py + 6, fill="#4fa3ff", outline="")
+        canvas.create_oval(5, 5, w - 5, h - 5, outline=GRID, width=1)
+        canvas.create_line(cx, 7, cx, h - 7, fill=GRID)
+        canvas.create_line(7, cy, w - 7, cy, fill=GRID)
+        px = cx + x * (w / 2 - 9)
+        py = cy - y * (h / 2 - 9)
+        # faint trail from centre to the dot, then the accent dot
+        if abs(x) > 0.01 or abs(y) > 0.01:
+            canvas.create_line(cx, cy, px, py, fill=ACCENT, width=2)
+        canvas.create_oval(px - 7, py - 7, px + 7, py + 7, fill=ACCENT, outline="")
 
     def _tick_preview(self) -> None:
         try:
@@ -516,6 +642,7 @@ class App:
 
 def main() -> None:
     root = tk.Tk()
+    sv_ttk.set_theme("dark")  # Windows 11-style dark theme for all ttk widgets
     App(root)
     root.mainloop()
 

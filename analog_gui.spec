@@ -5,12 +5,13 @@
 #   - hidapi.dll           (native backend for the `hid` package)
 #   - vgamepad data/DLLs   (ViGEmClient.dll etc., via collect_all)
 #   - pystray backends     (tray icon)
+#   - sv_ttk theme files   (.tcl Sun Valley dark/light theme assets)
 #   - discovered_keymap.json as a seed default (copied to the user dir on first run)
 
 from PyInstaller.utils.hooks import collect_all
 
 datas, binaries, hiddenimports = [], [], ["hid"]
-for pkg in ("vgamepad", "pystray", "PIL"):
+for pkg in ("vgamepad", "pystray", "PIL", "sv_ttk"):
     d, b, h = collect_all(pkg)
     datas += d
     binaries += b
