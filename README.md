@@ -12,6 +12,14 @@ boards on the same vendor protocol work too — see [Other keyboards](#other-key
 
 ![Analog control panel](docs/analog_gui.png)
 
+Demo
+
+<img width="400" height="225" alt="Forza Horizon 6 2026-05-26 23-16-09" src="https://github.com/user-attachments/assets/0e777683-1dff-45b7-b592-3be8a6685788" />
+
+
+
+
+
 ## How it works
 
 ```text
