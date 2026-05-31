@@ -5,4 +5,4 @@ the git tag (see .github/workflows/release.yml) and so importing it is cheap.
 The string is bare semver (no leading "v"); git tags carry the "v".
 """
 
-__version__ = "0.2.2"
+__version__ = "0.3.0"
