@@ -27,6 +27,7 @@ import time
 
 from analog_mapper import (
     AnalogMapper, AnalogProfile, Keymap,
+    MIN_TICK_HZ, MAX_TICK_HZ,
     ensure_defaults_exist, list_profiles, load_profile,
 )
 from hid_protocol import KNOWN_DEVICES, auto_detected_devices, list_present_devices
@@ -67,6 +68,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                    help="target a specific keyboard PID (e.g. 0x5030); default = auto-scan")
     p.add_argument("--list-devices", action="store_true",
                    help="list known HE keyboards and whether each is connected, then exit")
+    p.add_argument("--hz", type=int, default=None,
+                   help="virtual pad output rate in Hz (50-1000, default 1000); "
+                        "overrides the profile's saved rate for this run")
     return p.parse_args(argv)
 
 
@@ -97,6 +101,8 @@ def main() -> int:
 
     ensure_defaults_exist()
     profile = pick_profile(args.profile)
+    if args.hz is not None:
+        profile.tick_hz = max(MIN_TICK_HZ, min(MAX_TICK_HZ, args.hz))
 
     try:
         keymap = Keymap.load()
@@ -111,7 +117,7 @@ def main() -> int:
     mapper = AnalogMapper(profile, keymap, dry_run=False, vid=args.vid, pid=args.pid)
 
     print("=" * 60)
-    print(f" keypad-gamepad ANALOG  |  profile: {profile.name}")
+    print(f" keypad-gamepad ANALOG  |  profile: {profile.name}  |  {profile.tick_hz} Hz")
     print("=" * 60)
     if mapper.dry_run:
         print(" [!] ViGEmBus not attachable -> DRY-RUN (no real pad output).")

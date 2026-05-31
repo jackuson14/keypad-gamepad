@@ -74,7 +74,9 @@ with `Win+R` → `joy.cpl`.
 - **Bindings** — a table of `key → gamepad target`; Add / Edit / Remove.
 - **Learn key** — press a key and the app records its hardware index and full-press depth. No hardcoded
   layout, so switch reorderings don't matter.
-- **Tuning** — dead-zone (ignore light touches) and button threshold.
+- **Tuning** — dead-zone (ignore light touches), button threshold, and the **output rate**
+  (virtual-pad update rate, default 1000 Hz; `--hz` on the CLI). Note this is the gamepad
+  output rate, capped at 1000 — *not* the keyboard's 8K key-polling, which this app doesn't use.
 - **Live preview** — stick dots and trigger bars move with your key depth, before and while output runs.
 
 ## Other keyboards (MonsGeek / Akko HE)

@@ -35,6 +35,14 @@ from hid_protocol import DepthMonitor, VID, PID
 DEFAULT_MAX_DEPTH = 720          # observed full-press depth on the M1 V5 HE
 DEFAULT_DEAD_ZONE = 60           # depth below this reads as 0 (top dead-zone / noise)
 
+# Virtual-pad update rate (Hz): how often the engine pushes state to ViGEmBus.
+# 1000 Hz = a 1ms tick. Capped at 1000: a sleep-based loop can't reliably go faster
+# on Windows, and XInput/Xbox-360 emulation + games poll at 250-1000Hz, so higher
+# wouldn't reach the game anyway. (This is the OUTPUT rate, unrelated to the
+# keyboard's 8K key-polling, which this app doesn't use.)
+DEFAULT_TICK_HZ = 1000
+MIN_TICK_HZ, MAX_TICK_HZ = 50, 1000
+
 # Keymap location. When frozen (PyInstaller), the bundled copy lives in the
 # read-only _MEIPASS temp dir, so reads/writes must go to a writable user dir;
 # the bundled copy seeds it on first run. In dev, it's just next to this file.
@@ -117,6 +125,7 @@ class AnalogProfile:
     dead_zone: int = DEFAULT_DEAD_ZONE                       # global default
     dead_zone_overrides: dict[str, int] = field(default_factory=dict)  # label -> dz
     button_threshold: float = 0.5                            # analog value -> digital press
+    tick_hz: int = DEFAULT_TICK_HZ                           # virtual-pad output rate (Hz)
 
     @classmethod
     def default_fps(cls) -> "AnalogProfile":
@@ -167,13 +176,15 @@ class AnalogProfile:
 class AnalogMapper:
     """Drives a virtual Xbox 360 pad from live analog key depth.
 
-    Output is recomputed on a fixed tick (default 250Hz / 4ms) reading the latest
+    Output is recomputed on a fixed tick (default 1000Hz / 1ms) reading the latest
     depth snapshot, which decouples ViGEm update rate from the (much higher) event
     rate and keeps motion smooth. The most recent computed state is exposed via
-    `last_state` for testing/telemetry.
+    `last_state` for testing/telemetry. The tick rate is read live from
+    profile.tick_hz each iteration, so changes apply without a restart.
     """
 
-    TICK_HZ = 250
+    # Fallback only; the live rate comes from profile.tick_hz via _tick_dt().
+    TICK_HZ = DEFAULT_TICK_HZ
     TICK_DT = 1.0 / TICK_HZ
 
     def __init__(self, profile: AnalogProfile, keymap: Keymap, dry_run: bool = False,
@@ -300,11 +311,16 @@ class AnalogMapper:
 
         self.last_state = {k: v for k, v in st.items() if k != "_raw"}
 
+    def _tick_dt(self) -> float:
+        """Live seconds-per-tick from profile.tick_hz, clamped to a sane range."""
+        hz = getattr(self.profile, "tick_hz", DEFAULT_TICK_HZ) or DEFAULT_TICK_HZ
+        return 1.0 / _clamp(hz, MIN_TICK_HZ, MAX_TICK_HZ)
+
     def _run_loop(self) -> None:
         next_tick = time.perf_counter()
         while self.running:
             self._tick()
-            next_tick += self.TICK_DT
+            next_tick += self._tick_dt()
             sleep_for = next_tick - time.perf_counter()
             if sleep_for > 0:
                 time.sleep(sleep_for)
@@ -335,7 +351,7 @@ class AnalogMapper:
 
     def stop(self) -> None:
         self.running = False
-        time.sleep(self.TICK_DT * 2)
+        time.sleep(self._tick_dt() * 2)
         if self._owns_monitor:
             try:
                 self.monitor.stop()

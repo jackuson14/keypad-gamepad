@@ -26,7 +26,7 @@ from hid_protocol import DepthMonitor
 from winhotkey import start_hotkey, VK_F8
 from analog_mapper import (
     AnalogMapper, AnalogProfile, Keymap,
-    XBOX_BUTTONS, SPECIAL_TARGETS,
+    XBOX_BUTTONS, SPECIAL_TARGETS, MIN_TICK_HZ, MAX_TICK_HZ,
     ensure_defaults_exist, list_profiles, load_profile, save_profile,
     load_keymap, ANALOG_PROFILE_DIR,
 )
@@ -267,6 +267,23 @@ class App:
         self.bt_label = ttk.Label(bt_row, width=6); self.bt_label.pack(side="left")
         self._add_tip(bt_lbl, BT_TIP); self._add_tip(bt_scale, BT_TIP)
 
+        HZ_TIP = ("Output rate — how often the virtual Xbox pad is updated, in Hz. Default 1000 "
+                  "(every 1 ms). Higher feels marginally smoother, but XInput/Xbox controllers and "
+                  "most games only poll at 250–1000 Hz, so 1000 is the practical ceiling. NOTE: this "
+                  "is NOT the keyboard's 8K key-polling rate — that's a separate keyboard-only path "
+                  "this app doesn't use. Higher rates use a little more CPU.")
+        hz_row = ttk.Frame(tune); hz_row.pack(fill="x", padx=8, pady=4)
+        hz_lbl = ttk.Label(hz_row, text="Output rate (Hz):", width=20); hz_lbl.pack(side="left")
+        self.hz_var = tk.IntVar(value=self.profile.tick_hz)
+        hz_spin = ttk.Spinbox(hz_row, from_=MIN_TICK_HZ, to=MAX_TICK_HZ, increment=50,
+                              textvariable=self.hz_var, width=8, command=self._on_tune_changed)
+        hz_spin.pack(side="left")
+        hz_spin.bind("<Return>", lambda e: self._on_tune_changed())
+        hz_spin.bind("<FocusOut>", lambda e: self._on_tune_changed())
+        ttk.Label(hz_row, text=f"  (virtual pad update rate, {MIN_TICK_HZ}–{MAX_TICK_HZ}; "
+                  "not the keyboard's 8K key-polling)", foreground=MUTED).pack(side="left", padx=4)
+        self._add_tip(hz_lbl, HZ_TIP); self._add_tip(hz_spin, HZ_TIP)
+
         # Live preview
         live = ttk.LabelFrame(self.root, text="Live output preview"); live.pack(fill="x", **pad)
         sticks = ttk.Frame(live); sticks.pack(side="left", padx=8, pady=4)
@@ -318,6 +335,14 @@ class App:
     def _on_tune_changed(self) -> None:
         self.profile.dead_zone = int(self.dz_var.get())
         self.profile.button_threshold = float(self.bt_var.get())
+        try:
+            hz = int(self.hz_var.get())
+            clamped = max(MIN_TICK_HZ, min(MAX_TICK_HZ, hz))
+            self.profile.tick_hz = clamped
+            if clamped != hz:
+                self.hz_var.set(clamped)  # reflect an out-of-range typed value
+        except (tk.TclError, ValueError):
+            pass  # mid-edit / empty spinbox; keep the last good value
         if self.mapper is not None:
             self.mapper.profile = self.profile
             self.mapper._build_runtime()
@@ -326,6 +351,7 @@ class App:
     def _sync_tuning_from_profile(self) -> None:
         self.dz_var.set(self.profile.dead_zone)
         self.bt_var.set(self.profile.button_threshold)
+        self.hz_var.set(self.profile.tick_hz)
         self._update_tune_labels()
 
     def _refresh_bindings_table(self) -> None:
