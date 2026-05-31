@@ -73,10 +73,20 @@ class KnownDevice:
 # 0x1B depth events with:  py stage1_probe.py --vid 0x.... --pid 0x....
 KNOWN_DEVICES: list[KnownDevice] = [
     KnownDevice(0x3151, 0x5030, "MonsGeek M1 V5 HE", "wired", verified=True),
-    # Same keyboard over its 2.4GHz dongle. Untested here; the dongle transport may
-    # frame reports differently, so it's tried only if nothing verified is present.
-    KnownDevice(0x3151, 0x503A, "MonsGeek M1 V5 HE (2.4GHz dongle)", "dongle", verified=False),
+    # Same keyboard over its 2.4GHz dongle. Verified on hardware: the dongle relays
+    # depth telemetry byte-identically to wired (report 0x05 / event 0x1B / u16 depth),
+    # just under a different PID. The paired dongle enumerates as 0x5038 — an earlier
+    # 0x503A guess was never observed and has been dropped.
+    KnownDevice(0x3151, 0x5038, "MonsGeek M1 V5 HE (2.4GHz dongle)", "dongle", verified=True),
 ]
+
+# Vendor IDs whose HE keyboards use the RongYuan depth protocol. Capability-based
+# auto-detect (below) recognises ANY device on these vendor IDs that exposes the
+# vendor signature (a 0xFFFF/0x02 config interface), so other MonsGeek models — and
+# their 2.4GHz dongles, which each enumerate under their own unpredictable PID —
+# auto-detect without needing every PID hardcoded. Add a vendor id here (e.g. Akko's)
+# once a board on it is confirmed to speak the protocol.
+HE_VENDOR_IDS: set[int] = {0x3151}
 
 # Back-compat module constants: default to the first (verified) device. Existing
 # imports of VID/PID keep working; auto-scan covers the rest.
@@ -120,9 +130,42 @@ def _split_interfaces(ifaces: list[dict]) -> tuple[dict, dict]:
     return config, input_iface
 
 
+def _has_vendor_signature(ifaces: list[dict]) -> bool:
+    """True if this device exposes the RongYuan vendor depth signature: a
+    0xFFFF/0x02 config interface plus a separate 0xFFxx vendor input interface."""
+    has_cfg = any(d.get("usage_page") == 0xFFFF and d.get("usage") == 0x02 for d in ifaces)
+    has_input = any(
+        (d.get("usage_page", 0) & 0xFF00) == 0xFF00
+        and not (d.get("usage_page") == 0xFFFF and d.get("usage") == 0x02)
+        for d in ifaces
+    )
+    return has_cfg and has_input
+
+
+def auto_detected_devices() -> list[KnownDevice]:
+    """Connected devices on the HE vendor IDs that expose the vendor depth signature
+    but aren't in KNOWN_DEVICES — e.g. an unlisted MonsGeek model or its 2.4GHz dongle.
+
+    Gated to HE_VENDOR_IDS so we never send the enable feature report to unrelated
+    hardware. The product string becomes the (unverified) device name."""
+    known = {(d.vid, d.pid) for d in KNOWN_DEVICES}
+    out: list[KnownDevice] = []
+    for vid in HE_VENDOR_IDS:
+        groups: dict[int, list[dict]] = {}
+        for d in hid.enumerate(vid, 0):
+            groups.setdefault(d["product_id"], []).append(d)
+        for pid, ifaces in groups.items():
+            if (vid, pid) in known or not _has_vendor_signature(ifaces):
+                continue
+            name = (ifaces[0].get("product_string") or "Unrecognised HE keyboard").strip()
+            out.append(KnownDevice(vid, pid, name, "unknown", verified=False))
+    return out
+
+
 def list_present_devices() -> list[KnownDevice]:
-    """Return the KNOWN_DEVICES that are currently connected (HID-enumerable)."""
-    return [d for d in KNOWN_DEVICES if list(hid.enumerate(d.vid, d.pid))]
+    """KNOWN_DEVICES currently connected, plus any capability-detected HE boards."""
+    present = [d for d in KNOWN_DEVICES if list(hid.enumerate(d.vid, d.pid))]
+    return present + auto_detected_devices()
 
 
 def find_devices(
@@ -141,7 +184,9 @@ def find_devices(
             )
         ]
     else:
-        targets = list(KNOWN_DEVICES)
+        # Known devices first (friendly names / verified ordering), then any
+        # capability-detected board so unlisted models / dongles still work.
+        targets = list(KNOWN_DEVICES) + auto_detected_devices()
 
     errors: list[str] = []
     for dev in targets:
@@ -159,7 +204,7 @@ def find_devices(
     raise RuntimeError(
         "No usable HE keyboard found:\n  "
         + "\n  ".join(errors)
-        + "\n  Plug in via USB-C (the wireless dongle is a separate, unverified PID). "
+        + "\n  Plug in via USB-C, or pair the 2.4GHz dongle (both are auto-detected). "
         "To try an unlisted board, pass its IDs explicitly "
         "(run: py stage1_probe.py --vid 0x.... --pid 0x.... to confirm it speaks the protocol)."
     )

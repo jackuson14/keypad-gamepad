@@ -82,8 +82,8 @@ def find_devices(vid: int = VID, pid: int = PID) -> tuple[dict, dict]:
     if not all_ifaces:
         raise RuntimeError(
             f"No device with VID:PID={vid:04x}:{pid:04x} found.\n"
-            f"  - Is the keyboard plugged in via USB-C (not the wireless dongle)?\n"
-            f"  - The M1 V5 wireless dongle uses PID 0x503A and would need different handling."
+            f"  - Is the keyboard plugged in via USB-C, or paired via the 2.4GHz dongle?\n"
+            f"  - The M1 V5 dongle enumerates as PID 0x5038 (wired is 0x5030)."
         )
 
     print(f"[info] found {len(all_ifaces)} HID interfaces on the keyboard:")

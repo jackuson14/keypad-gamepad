@@ -15,6 +15,7 @@ Usage:
 
 from __future__ import annotations
 
+import argparse
 import os
 import sys
 import time
@@ -31,11 +32,19 @@ from stage1_probe import VID, PID, build_feature_command, find_devices  # noqa: 
 
 
 def main() -> int:
-    duration = float(sys.argv[1]) if len(sys.argv) > 1 else 30.0
+    ap = argparse.ArgumentParser(description="Stage 1 capture: time-boxed depth-event probe.")
+    ap.add_argument("duration", nargs="?", type=float, default=30.0,
+                    help="capture window in seconds (default 30)")
+    ap.add_argument("--vid", type=lambda s: int(s, 0), default=VID,
+                    help=f"keyboard VID (default 0x{VID:04x}); e.g. 0x3151")
+    ap.add_argument("--pid", type=lambda s: int(s, 0), default=PID,
+                    help=f"keyboard PID (default 0x{PID:04x}); e.g. 0x5038 for the dongle")
+    args = ap.parse_args()
+    duration = args.duration
 
-    print(f"[capture] VID:PID={VID:04x}:{PID:04x}  window={duration:.0f}s")
+    print(f"[capture] VID:PID={args.vid:04x}:{args.pid:04x}  window={duration:.0f}s")
     try:
-        config_info, input_info = find_devices()
+        config_info, input_info = find_devices(args.vid, args.pid)
     except RuntimeError as e:
         print(f"ERROR: {e}", file=sys.stderr)
         return 1

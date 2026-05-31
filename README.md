@@ -2,7 +2,8 @@
 
 Turn a **MonsGeek / Akko Hall-Effect keyboard** into a virtual **Xbox 360 controller with true
 analog sticks and triggers**, driven by how far you press each key. It's the gamepad mode the
-firmware leaves out — with no firmware mod, no Xbox license, and **no Administrator**. Wired USB.
+firmware leaves out — with no firmware mod, no Xbox license, and **no Administrator**. Wired USB
+or the 2.4 GHz dongle.
 
 Built and verified on the **MonsGeek M1 V5 HE**, but the keyboard is auto-detected: sibling HE
 boards on the same vendor protocol work too — see [Other keyboards](#other-keyboards-monsgeek--akko-he).
@@ -31,8 +32,9 @@ to proportional gamepad output and feeds it through ViGEmBus.
 
 ## Requirements
 
-- Windows 10/11 and a **wired** MonsGeek/Akko HE keyboard. The **M1 V5 HE** (VID `0x3151` /
-  PID `0x5030`) is the verified board; other HE boards are auto-detected — see [Other keyboards](#other-keyboards-monsgeek--akko-he).
+- Windows 10/11 and a MonsGeek/Akko HE keyboard, **wired or via its 2.4 GHz dongle**. The
+  **M1 V5 HE** is verified on both (wired `0x3151:0x5030`, dongle `0x3151:0x5038`); other HE
+  boards are auto-detected — see [Other keyboards](#other-keyboards-monsgeek--akko-he).
 - The **[ViGEmBus driver](https://github.com/nefarius/ViGEmBus/releases/latest)** — 1.22.0+ (older builds
   fail on Windows 11). One-time install.
 - Either the prebuilt `.exe` (from Releases) **or** Python 3.10+ to run from source.
@@ -77,28 +79,37 @@ with `Win+R` → `joy.cpl`.
 
 ## Other keyboards (MonsGeek / Akko HE)
 
-The M1 V5 HE is the only board **verified** here, but the depth protocol is shared
-across MonsGeek/Akko Hall-Effect keyboards on RongYuan firmware, so sibling boards
-often work with no code change. Device selection is data-driven:
+The depth protocol is shared across MonsGeek/Akko Hall-Effect keyboards on RongYuan
+firmware, so sibling boards generally work with no code change. Detection is two-tier:
 
-- **Auto-detect** — on launch the app scans a small registry of known HE keyboards
-  (`KNOWN_DEVICES` in [`hid_protocol.py`](hid_protocol.py)) and uses the first one
-  connected. The GUI shows the detected board in its title bar; the CLI prints it.
-- **See what's connected:** `py run_analog.py --list-devices`
-- **Target a specific board:** `py run_analog.py --vid 0x3151 --pid 0x5030`
-- **Try an unlisted board:** confirm it streams `0x1B` depth events first, without
-  editing any source:
+- **Known devices** — a small registry (`KNOWN_DEVICES` in [`hid_protocol.py`](hid_protocol.py))
+  of confirmed boards with friendly names. Verified so far: the **M1 V5 HE wired**
+  (`0x3151:0x5030`) and its **2.4 GHz dongle** (`0x3151:0x5038`) — both tested on hardware.
+- **Capability auto-detect** — if no known board is connected, the app scans for *any*
+  MonsGeek-vendor device exposing the vendor depth signature (a `0xFFFF/0x02` config
+  interface) and uses it. This is what makes **other models and their 2.4 GHz dongles
+  work automatically**, even though each dongle enumerates under its own unpredictable
+  PID (the M1 V5's, for instance, is `0x5038` wired-vs-`0x5030` — not guessable).
+
+The GUI shows the detected board in its title bar; the CLI prints it. Other commands:
+
+- **See what's connected (known + auto-detected):** `py run_analog.py --list-devices`
+- **Target a specific board:** `py run_analog.py --vid 0x3151 --pid 0x5038`
+- **A board on a different vendor id** (e.g. some Akko models) won't auto-detect until
+  its vendor id is added to `HE_VENDOR_IDS`. Confirm it first, without editing source:
 
   ```powershell
-  py stage1_probe.py --vid 0xVVVV --pid 0xPPPP   # press W/A/S/D slowly
+  py tools/hid_enumerate.py            # find its VID:PID and vendor interfaces
+  py stage1_probe.py --vid 0xVVVV --pid 0xPPPP   # press W/A/S/D — depth should ramp
   ```
 
-  If depth values ramp up and down, add a `KnownDevice(0xVVVV, 0xPPPP, "Your board")`
-  line to `KNOWN_DEVICES` (mark `verified=True` once you've used it). Then use
-  **Learn key** to teach it your layout — key indices aren't assumed.
+  If depth ramps up and down, add the vendor id to `HE_VENDOR_IDS` (and optionally a
+  named `KnownDevice` entry). Then use **Learn key** to teach it your layout — key
+  indices aren't assumed.
 
-> The M1 V5's 2.4 GHz dongle (PID `0x503A`) is listed but **unverified**: the dongle
-> transport may frame reports differently. Wired USB is the reliable path.
+> **2.4 GHz dongle:** verified to stream analog depth byte-identically to wired on the
+> M1 V5 HE. Wireless adds a little radio latency, so wired USB is still marginally
+> snappier for twitch games — but the dongle is fully supported.
 
 ## Build the .exe yourself
 

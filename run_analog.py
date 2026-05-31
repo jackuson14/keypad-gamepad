@@ -29,7 +29,7 @@ from analog_mapper import (
     AnalogMapper, AnalogProfile, Keymap,
     ensure_defaults_exist, list_profiles, load_profile,
 )
-from hid_protocol import KNOWN_DEVICES, list_present_devices
+from hid_protocol import KNOWN_DEVICES, auto_detected_devices, list_present_devices
 from winhotkey import start_hotkey, VK_F8
 
 
@@ -74,10 +74,16 @@ def list_devices_command() -> int:
     present = {(d.vid, d.pid) for d in list_present_devices()}
     print("Known HE keyboards (auto-scan order):")
     for d in KNOWN_DEVICES:
-        mark = "connected" if (d.vid, d.pid) in present else "not found"
-        print(f"  [{'x' if (d.vid, d.pid) in present else ' '}] {d}  -- {mark}")
+        hit = (d.vid, d.pid) in present
+        print(f"  [{'x' if hit else ' '}] {d}  -- {'connected' if hit else 'not found'}")
+    extra = auto_detected_devices()
+    if extra:
+        print("\nAuto-detected by vendor signature (unlisted model/dongle, treated as unverified):")
+        for d in extra:
+            print(f"  [x] {d}  -- connected")
     if not present:
-        print("\nNothing connected. Plug in via USB-C, or pass --vid/--pid for an unlisted board.")
+        print("\nNothing connected. Plug in via USB-C / pair the dongle, or pass --vid/--pid "
+              "for a board on another vendor id.")
     return 0
 
 
