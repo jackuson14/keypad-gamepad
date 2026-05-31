@@ -14,3 +14,7 @@ sv-ttk>=2.6.0
 # --- Analog GUI tray icon (optional; analog_gui degrades gracefully without) ---
 pystray>=0.19.0
 Pillow>=10.0.0
+
+# --- In-app update check (TLS CA bundle). Required so the frozen .exe can verify
+# HTTPS to GitHub on a clean machine; CPython's ssl ignores the Windows cert store. ---
+certifi>=2024.0.0

@@ -1,0 +1,51 @@
+name: build-release
+
+# Build the Windows .exe and publish it as a GitHub Release asset whenever a
+# semver tag (vX.Y.Z) is pushed. The in-app "Check for updates" feature reads
+# this release via the GitHub API, so the asset name must stay
+# `keypad-gamepad-analog.exe` (see updater.ASSET_NAME).
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write   # required to create the release and upload the asset
+
+jobs:
+  build:
+    runs-on: windows-latest   # PyInstaller + hidapi + vgamepad + win hotkey need Windows
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          py -m pip install --upgrade pip
+          py -m pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Fetch hidapi.dll
+        run: powershell -ExecutionPolicy Bypass -File tools/fetch_hidapi.ps1
+
+      - name: Sync version.py to the tag
+        # Build-time only: makes the bundled .exe self-report the tag's version even
+        # if version.py wasn't bumped before tagging. Does not commit back.
+        run: |
+          $v = "${{ github.ref_name }}".TrimStart('v')
+          Set-Content version.py "__version__ = `"$v`"" -Encoding utf8
+          Write-Output "version.py -> $v"
+
+      - name: Build the .exe
+        # ViGEmBus is NOT needed to build: vgamepad's client DLLs ship as bundled data
+        # and the app only attaches to the driver at runtime, which the build never does.
+        run: powershell -ExecutionPolicy Bypass -File tools/build_exe.ps1
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/keypad-gamepad-analog.exe
+          generate_release_notes: true
+          fail_on_unmatched_files: true

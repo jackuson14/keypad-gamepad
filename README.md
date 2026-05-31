@@ -78,6 +78,12 @@ with `Win+R` → `joy.cpl`.
   (virtual-pad update rate, default 1000 Hz; `--hz` on the CLI). Note this is the gamepad
   output rate, capped at 1000 — *not* the keyboard's 8K key-polling, which this app doesn't use.
 - **Live preview** — stick dots and trigger bars move with your key depth, before and while output runs.
+- **Check for updates** — the header shows the version and a **Check for updates** button. It asks
+  GitHub for the latest release; if a newer one exists it downloads the new
+  `keypad-gamepad-analog.exe` to your **Downloads** folder (it won't overwrite the running copy —
+  close the app and run the downloaded file to update). The first launch may show a Windows
+  SmartScreen prompt because the `.exe` isn't code-signed. Running from source? It points you to
+  `git pull` instead.
 
 ## Other keyboards (MonsGeek / Akko HE)
 
@@ -121,8 +127,14 @@ powershell -ExecutionPolicy Bypass -File tools\build_exe.ps1
 # -> dist\keypad-gamepad-analog.exe   (single windowed file, ~20 MB)
 ```
 
-Bundles `hidapi.dll`, the vgamepad client, and the tray backend. ViGEmBus still installs separately
-(it's a kernel driver and can't be packed into the exe).
+Bundles `hidapi.dll`, the vgamepad client, the tray backend, and the certifi CA bundle (so the
+in-app update check can verify HTTPS). ViGEmBus still installs separately (it's a kernel driver and
+can't be packed into the exe).
+
+**Releasing:** pushing a `vX.Y.Z` tag triggers [`.github/workflows/release.yml`](.github/workflows/release.yml),
+which builds the `.exe` on `windows-latest` and uploads it to a GitHub Release. The workflow syncs
+`version.py` to the tag at build time, so the released `.exe` self-reports the right version; bump
+`version.py` in the tagged commit too, so source runs report it correctly.
 
 ## Project layout
 

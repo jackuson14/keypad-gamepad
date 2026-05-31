@@ -17,11 +17,17 @@ No Administrator required: the keyboard is read over HID and F8 uses RegisterHot
 
 from __future__ import annotations
 
+import sys
+import threading
+import webbrowser
+
 import tkinter as tk
 from tkinter import ttk, messagebox, simpledialog, font as tkfont
 
 import sv_ttk
 
+import updater
+from version import __version__
 from hid_protocol import DepthMonitor
 from winhotkey import start_hotkey, VK_F8
 from analog_mapper import (
@@ -180,6 +186,16 @@ class App:
         ttk.Label(header, text="keypad-gamepad", font=("Segoe UI Semibold", 16)).pack(side="left")
         ttk.Label(header, text="ANALOG", font=("Segoe UI", 11),
                   foreground=ACCENT).pack(side="left", padx=(8, 0), pady=(5, 0))
+        # Version + update check, anchored right (packed right-first so the button is rightmost).
+        self.update_btn = ttk.Button(header, text="Check for updates",
+                                     command=self._on_check_for_updates)
+        self.update_btn.pack(side="right", pady=(2, 0))
+        ttk.Label(header, text=f"v{__version__}", foreground=MUTED).pack(
+            side="right", padx=(0, 10), pady=(8, 0))
+        self._add_tip(self.update_btn,
+                      "Check GitHub for a newer release. If one exists, the new "
+                      "keypad-gamepad-analog.exe is downloaded to your Downloads folder "
+                      "(it won't replace this running copy automatically).")
 
         # ViGEmBus status pill (flat, dark; coloured in _create_mapper)
         self.vigem_banner = tk.Label(self.root, text="  Checking ViGEmBus…",
@@ -600,6 +616,123 @@ class App:
         if self.mapper is not None:
             self.mapper.monitor = self.monitor
         self._set_status("Reconnected." if self.monitor_ok else "Still no keyboard.")
+
+    # ------------------------------------------------------------------ updates
+
+    def _on_check_for_updates(self) -> None:
+        """Query GitHub on a worker thread; never block the UI."""
+        self.update_btn.config(state="disabled")
+        self._set_status("Checking for updates…")
+
+        def work() -> None:
+            info = updater.check_for_update(__version__)
+            self.root.after(0, lambda: self._on_check_result(info))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _on_check_result(self, info: "updater.UpdateInfo") -> None:
+        if not self.root.winfo_exists():
+            return
+        self.update_btn.config(state="normal")
+
+        if info.error:
+            self._set_status("Update check failed.")
+            messagebox.showwarning("Check for updates", info.error)
+            return
+
+        if not info.is_update_available:
+            self._set_status(f"Up to date (v{info.current_version}).")
+            messagebox.showinfo(
+                "Check for updates",
+                f"You're on the latest version (v{info.current_version}).")
+            return
+
+        self._set_status(f"Update available: v{info.latest_version}.")
+
+        # Running from source: an .exe download is meaningless — point at git/releases.
+        if not getattr(sys, "frozen", False):
+            if messagebox.askyesno(
+                    "Update available",
+                    f"v{info.latest_version} is available (you have v{info.current_version}).\n\n"
+                    "You're running from source — update with 'git pull'.\n\n"
+                    "Open the releases page?"):
+                webbrowser.open(info.release_url)
+            return
+
+        # Frozen build but no .exe attached to the release: fall back to the web page.
+        if not info.asset_url:
+            if messagebox.askyesno(
+                    "Update available",
+                    f"v{info.latest_version} is available, but no .exe was attached to the "
+                    "release yet.\n\nOpen the releases page?"):
+                webbrowser.open(info.release_url)
+            return
+
+        notes = (info.notes or "").strip()
+        if len(notes) > 1200:
+            notes = notes[:1200].rstrip() + "\n…"
+        msg = f"v{info.latest_version} is available (you have v{info.current_version})."
+        if notes:
+            msg += f"\n\n{notes}"
+        msg += "\n\nDownload the new keypad-gamepad-analog.exe now?"
+        if messagebox.askyesno("Update available", msg):
+            self._start_download(info)
+
+    def _start_download(self, info: "updater.UpdateInfo") -> None:
+        self.update_btn.config(state="disabled")
+        dlg = tk.Toplevel(self.root); dlg.title("Downloading update")
+        dlg.geometry("440x150"); dlg.transient(self.root); dlg.configure(bg=SURFACE)
+        ttk.Label(dlg, text=f"Downloading keypad-gamepad-analog v{info.latest_version}…",
+                  wraplength=400).pack(pady=(16, 8), padx=16)
+        bar = ttk.Progressbar(dlg, length=380, mode="determinate", maximum=100)
+        bar.pack(pady=6, padx=16)
+        pct = ttk.Label(dlg, text="", foreground=MUTED); pct.pack()
+        state = {"indeterminate": False}
+        filename = f"keypad-gamepad-analog-v{info.latest_version}.exe"
+
+        def progress(done: int, total: int | None) -> None:
+            def upd() -> None:
+                if not dlg.winfo_exists():
+                    return
+                if total:
+                    bar["value"] = done * 100 / total
+                    pct.config(text=f"{done // 1024:,} / {total // 1024:,} KB")
+                else:
+                    if not state["indeterminate"]:
+                        state["indeterminate"] = True
+                        bar.config(mode="indeterminate"); bar.start(15)
+                    pct.config(text=f"{done // 1024:,} KB")
+            self.root.after(0, upd)
+
+        def work() -> None:
+            try:
+                path = updater.download_asset(
+                    info.asset_url, updater.default_download_dir(),
+                    filename=filename, progress_cb=progress)
+            except Exception as e:  # noqa: BLE001 - report any download failure to the user
+                self.root.after(0, lambda: self._download_failed(dlg, e))
+                return
+            self.root.after(0, lambda: self._download_done(dlg, path))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _download_failed(self, dlg: tk.Toplevel, err: Exception) -> None:
+        if dlg.winfo_exists():
+            dlg.destroy()
+        self.update_btn.config(state="normal")
+        self._set_status("Download failed.")
+        messagebox.showerror("Download failed", f"Could not download the update:\n{err}")
+
+    def _download_done(self, dlg: tk.Toplevel, path) -> None:
+        if dlg.winfo_exists():
+            dlg.destroy()
+        self.update_btn.config(state="normal")
+        self._set_status(f"Downloaded to {path}")
+        if messagebox.askyesno(
+                "Update downloaded",
+                f"Saved to:\n{path}\n\nClose this app and run the new file to update.\n\n"
+                "Show it in Explorer now?"):
+            updater.reveal_in_explorer(path)
 
     # ------------------------------------------------------------------ live preview loop
 

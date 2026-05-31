@@ -6,12 +6,13 @@
 #   - vgamepad data/DLLs   (ViGEmClient.dll etc., via collect_all)
 #   - pystray backends     (tray icon)
 #   - sv_ttk theme files   (.tcl Sun Valley dark/light theme assets)
+#   - certifi cacert.pem   (CA bundle so the in-app update check can verify HTTPS)
 #   - discovered_keymap.json as a seed default (copied to the user dir on first run)
 
 from PyInstaller.utils.hooks import collect_all
 
 datas, binaries, hiddenimports = [], [], ["hid"]
-for pkg in ("vgamepad", "pystray", "PIL", "sv_ttk"):
+for pkg in ("vgamepad", "pystray", "PIL", "sv_ttk", "certifi"):
     d, b, h = collect_all(pkg)
     datas += d
     binaries += b
