@@ -29,6 +29,7 @@ from analog_mapper import (
     AnalogMapper, AnalogProfile, Keymap,
     MIN_TICK_HZ, MAX_TICK_HZ,
     ensure_defaults_exist, list_profiles, load_profile,
+    get_last_profile, set_last_profile,
 )
 from hid_protocol import KNOWN_DEVICES, auto_detected_devices, list_present_devices
 from winhotkey import start_hotkey, VK_F8
@@ -60,8 +61,9 @@ def _hex_or_int(s: str) -> int:
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(description="keypad-gamepad analog CLI runner.")
-    p.add_argument("profile", nargs="?", default="fps",
-                   help="profile: 'fps', 'racing', or any saved analog profile name")
+    p.add_argument("profile", nargs="?", default=None,
+                   help="profile: 'fps', 'racing', or any saved analog profile name "
+                        "(default: the last-used profile, else 'fps')")
     p.add_argument("--vid", type=_hex_or_int, default=None,
                    help="target a specific keyboard VID (e.g. 0x3151); default = auto-scan")
     p.add_argument("--pid", type=_hex_or_int, default=None,
@@ -100,7 +102,9 @@ def main() -> int:
         return 2
 
     ensure_defaults_exist()
-    profile = pick_profile(args.profile)
+    name = args.profile or get_last_profile() or "fps"
+    profile = pick_profile(name)
+    set_last_profile(profile.name)   # keep last-used in sync with the GUI
     if args.hz is not None:
         profile.tick_hz = max(MIN_TICK_HZ, min(MAX_TICK_HZ, args.hz))
 

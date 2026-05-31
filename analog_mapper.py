@@ -400,3 +400,38 @@ def ensure_defaults_exist() -> None:
         path = ANALOG_PROFILE_DIR / f"{prof.name}.json"
         if not path.exists():
             save_profile(prof)
+
+
+# ---------------------------------------------------------------------------
+# App settings (small persistent state, e.g. the last-used profile)
+# ---------------------------------------------------------------------------
+
+SETTINGS_PATH = _USER_DIR / "settings.json"
+
+
+def _read_settings() -> dict:
+    try:
+        return json.loads(SETTINGS_PATH.read_text())
+    except Exception:
+        return {}  # missing or corrupt -> defaults
+
+
+def _write_settings(data: dict) -> None:
+    SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    SETTINGS_PATH.write_text(json.dumps(data, indent=2))
+
+
+def get_last_profile() -> str | None:
+    """Name of the profile used most recently (None if never set)."""
+    name = _read_settings().get("last_profile")
+    return name if isinstance(name, str) else None
+
+
+def set_last_profile(name: str) -> None:
+    """Remember `name` as the last-used profile; best-effort (never raises)."""
+    try:
+        data = _read_settings()
+        data["last_profile"] = name
+        _write_settings(data)
+    except Exception:
+        pass

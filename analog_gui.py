@@ -28,7 +28,7 @@ from analog_mapper import (
     AnalogMapper, AnalogProfile, Keymap,
     XBOX_BUTTONS, SPECIAL_TARGETS, MIN_TICK_HZ, MAX_TICK_HZ,
     ensure_defaults_exist, list_profiles, load_profile, save_profile,
-    load_keymap, ANALOG_PROFILE_DIR,
+    load_keymap, ANALOG_PROFILE_DIR, get_last_profile, set_last_profile,
 )
 
 SORTED_TARGETS = sorted(XBOX_BUTTONS.keys()) + sorted(SPECIAL_TARGETS)
@@ -113,8 +113,7 @@ class App:
         root.configure(bg=SURFACE)
 
         ensure_defaults_exist()
-        self.profile: AnalogProfile = load_profile("analog_fps") if "analog_fps" in list_profiles() \
-            else AnalogProfile.default_fps()
+        self.profile: AnalogProfile = self._load_initial_profile()
         self.keymap = load_keymap()
 
         # One shared monitor for live preview + wizards + the engine.
@@ -364,6 +363,19 @@ class App:
 
     # ------------------------------------------------------------------ profiles
 
+    def _load_initial_profile(self) -> AnalogProfile:
+        """Restore the last-used profile across launches; fall back to a default."""
+        names = list_profiles()
+        last = get_last_profile()
+        if last and last in names:
+            try:
+                return load_profile(last)
+            except Exception:
+                pass
+        if "analog_fps" in names:
+            return load_profile("analog_fps")
+        return AnalogProfile.default_fps()
+
     def _load_selected_profile(self) -> None:
         name = self.profile_var.get()
         try:
@@ -372,6 +384,7 @@ class App:
             messagebox.showerror("Error", f"Profile '{name}' not found"); return
         if self.mapper is not None:
             self.mapper.set_profile(self.profile)
+        set_last_profile(name)
         self._sync_tuning_from_profile()
         self._refresh_bindings_table()
         self._set_status(f"Loaded profile '{name}'")
@@ -379,6 +392,7 @@ class App:
     def _save_current_profile(self) -> None:
         self._on_tune_changed()
         save_profile(self.profile)
+        set_last_profile(self.profile.name)
         self.profile_combo["values"] = list_profiles()
         self._set_status(f"Saved '{self.profile.name}'")
 
