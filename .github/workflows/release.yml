@@ -15,6 +15,7 @@ permissions:
 jobs:
   build:
     runs-on: windows-latest   # PyInstaller + hidapi + vgamepad + win hotkey need Windows
+    timeout-minutes: 20        # vgamepad's installer once hung here for ~90 min; fail fast instead of burning runner minutes
     steps:
       - uses: actions/checkout@v4
 
@@ -22,7 +23,23 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Pre-satisfy vgamepad's ViGEmBus driver check
+        # vgamepad 0.1.0's setup.py runs `msiexec /i ViGEmBusSetup.msi` with NO silent
+        # flag whenever it can't find the driver in the registry. On a headless runner
+        # that MSI's GUI blocks forever (the build that prompted this hung ~90 min on it).
+        # The driver isn't needed to BUILD -- vgamepad's client DLLs ship as bundled data
+        # and the app only attaches to the driver at runtime -- so we plant the uninstall
+        # key its detection greps for, which makes it think the driver is present and skip
+        # the installer. See: github.com/yannbouteiller/vgamepad/blob/v0.1.0/setup.py
+        shell: cmd
+        run: |
+          reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\ViGEmBus" /v DisplayVersion /t REG_SZ /d "0.0.0.0" /f /reg:64
+          reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\ViGEmBus" /v DisplayName /t REG_SZ /d "Nefarius Virtual Gamepad Emulation Bus Driver" /f /reg:64
+
       - name: Install dependencies
+        env:
+          # Honoured by vgamepad > 0.1.0; harmless on 0.1.0 (covered by the registry shim above).
+          VGAMEPAD_SKIP_VIGEMBUS_INSTALL: 'true'
         run: |
           py -m pip install --upgrade pip
           py -m pip install -r requirements.txt -r requirements-dev.txt
